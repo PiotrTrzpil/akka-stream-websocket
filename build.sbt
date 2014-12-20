@@ -18,11 +18,14 @@ libraryDependencies ++= {
   val sprayV = "1.2.0"
   Seq(
 //  "org.java-websocket"  %   "Java-WebSocket" % "1.3.1",
+  "javax.websocket"%"javax.websocket-api"% "1.1",
+  "org.glassfish.tyrus"%"tyrus-server"% "1.9",
+  "org.glassfish.tyrus"%"tyrus-container-grizzly-server"% "1.9",
      "com.typesafe.akka"  %% "akka-actor"       % akkaV,
      "com.typesafe.akka"  %% "akka-slf4j"       % akkaV,
      "com.typesafe.akka"  %% "akka-remote"      % akkaV,
      "com.typesafe.akka"  %% "akka-contrib"     % akkaV,
-     "com.typesafe.akka" %% "akka-stream-experimental" % "0.11",
+     "com.typesafe.akka" %% "akka-stream-experimental" % "1.0-M1",
      "io.spray"           %% "spray-can"        % "1.3.1",
      "io.spray"           %% "spray-routing"    % "1.3.1",
      "io.spray"           %% "spray-json"       % "1.2.6",

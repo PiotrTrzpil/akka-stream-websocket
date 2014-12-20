@@ -2,9 +2,9 @@ package streamwebsocket
 
 import java.net.URI
 
-import akka.actor.PoisonPill
+import akka.actor.{ActorLogging, PoisonPill}
 import akka.stream.actor.ActorPublisherMessage.{Cancel, Request}
-import akka.stream.actor.{OneByOneRequestStrategy, ActorPublisher}
+import akka.stream.actor.{ActorSubscriberMessage, ActorSubscriber, OneByOneRequestStrategy, ActorPublisher}
 import org.java_websocket.client.WebSocketClient
 import org.java_websocket.handshake.{ClientHandshake, ServerHandshake}
 import streamwebsocket.WebSocketMessage._
@@ -12,6 +12,9 @@ import streamwebsocket.WebSocketMessage._
 import scala.collection.mutable
 import scala.concurrent.Promise
 import scala.util.Success
+import org.reactivestreams.{Subscription, Subscriber, Processor}
+import akka.stream.actor.ActorSubscriberMessage.OnNext
+import akka.stream.contrib.streamwebsocket.WebSocket.{Event, Message, Command}
 
 
 case class WebSocketSend(message:String)
@@ -19,11 +22,11 @@ case object WebSocketClose
 
 
 object WebSocketMessage {
-   case class Message(message: String)
-   case class Close(code:Int, reason:String, isRemote:Boolean)
-   case class Error(cause : Throwable)
-   case class ClientOpen(hs: ServerHandshake)
-   case class ServerOpen(hs: ClientHandshake)
+   case class Message(message: String) extends Event
+   case class Close(code:Int, reason:String, isRemote:Boolean) extends Event
+   case class Error(cause : Throwable) extends Event
+   case class ClientOpen(hs: ServerHandshake) extends Event
+   case class ServerOpen(hs: ClientHandshake)extends Event
    case object SubscribeClose
    case object SubscribeOpen
 
@@ -32,7 +35,8 @@ object WebSocketMessage {
 
 
 class WebSocketActorClient( str: String)
-  extends WebSocketClient(URI.create(str)) with ActorPublisher[String] {
+  extends WebSocketClient(URI.create(str))
+  with ActorPublisher[String] with ActorSubscriber with ActorLogging {
 
    protected def requestStrategy = OneByOneRequestStrategy
    implicit val exec = context.system.dispatcher
@@ -44,7 +48,6 @@ class WebSocketActorClient( str: String)
    val opening = Promise[WebSocketMessage.ClientOpen]()
 
    connect()
-
 
    def receive = {
       case message : String =>
@@ -68,26 +71,36 @@ class WebSocketActorClient( str: String)
 
       case SubscribeOpen =>
          sender() ! opening.future
+//      case OnNext() =>
+//         sender() ! opening.future
 
       case close : WebSocketMessage.Close =>
          closing.complete(Success(close))
          onComplete()
 
-      case WebSocketSend(message) =>
-         if (opening.isCompleted) {
-            send(message)
-         } else {
-            sendQueue += message
-         }
 
       case WebSocketClose =>
          opening.future.onSuccess {
             case open => close()
          }
 
+
+      case OnNext(message:String) =>
+         if (opening.isCompleted) {
+            send(message)
+         } else {
+            sendQueue += message
+         }
+//      case ActorSubscriberMessage.OnComplete =>
+//      // TODO - blank out the screen
+//      case ActorSubscriberMessage.OnError(err) =>
+//      // TODO - display error.
+
       case Request(n) =>
          while (totalDemand > 0 && receiveQueue.nonEmpty) {
-            onNext(receiveQueue.dequeue())
+            val d = receiveQueue.dequeue()
+            log.info("Invoking onNext("+d)
+            onNext(d)
          }
 
       case Cancel =>
@@ -110,4 +123,7 @@ class WebSocketActorClient( str: String)
    def onClose(i: Int, s: String, b: Boolean) = {
       self ! WebSocketMessage.Close(i, s, b)
    }
+
+   def onSubscribe(s: Subscription) = ???
+
 }

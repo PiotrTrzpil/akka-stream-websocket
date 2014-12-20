@@ -41,6 +41,7 @@ class WebSocketPublisher(ws: WebSocket) extends ActorPublisher[String] with Acto
    def receive = {
       case message: String =>
          if (totalDemand > 0) {
+            log.debug(s"server received: " + message)
             onNext(message)
          } else {
             receiveQueue += message
@@ -78,7 +79,7 @@ class WebSocketPublisher(ws: WebSocket) extends ActorPublisher[String] with Acto
          }
 
       case Request(n) =>
-         log.debug(s"Received request($n). We have ${receiveQueue.size} messages in queue.")
+         log.debug(s"RReceived request($n). We have ${receiveQueue.size} messages in queue.")
          while (totalDemand > 0 && receiveQueue.nonEmpty) {
             onNext(receiveQueue.dequeue())
          }
@@ -135,6 +136,7 @@ class ReactiveServer(val port: Int) extends WebSocketServer(new InetSocketAddres
    start()
 
    final override def onOpen(ws: WebSocket, hs: ClientHandshake) = findHandler(ws) {
+
       handler => handler ! (ws, ServerOpen(hs))
    }
 

@@ -1,0 +1,1 @@
+package akka.contrib.streamwebsocket
