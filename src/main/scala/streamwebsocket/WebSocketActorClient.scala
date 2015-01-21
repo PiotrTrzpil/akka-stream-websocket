@@ -45,7 +45,6 @@ class WebSocketActorClient( str: String)
 
    connect()
 
-
    def receive = {
       case message : String =>
          if (totalDemand > 0) {
@@ -71,7 +70,9 @@ class WebSocketActorClient( str: String)
 
       case close : WebSocketMessage.Close =>
          closing.complete(Success(close))
-         onComplete()
+         if (isActive) {
+            onComplete()
+         }
 
       case WebSocketSend(message) =>
          if (opening.isCompleted) {
