@@ -15,28 +15,45 @@ import spray.can.websocket.FrameCommandFailed
 import akka.stream.actor.ActorPublisherMessage.Request
 import scala.collection.mutable
 import org.reactivestreams.{Subscriber, Publisher}
+import streamwebsocket.Websocket.Connection
 
-case class Register(publisher : Publisher[Frame], subscriber:Subscriber[Frame])
+
+case object Websocket {
+   case object Unbind
+
+   case class Bind(host:String, port:Int)
+   case class Connection(inbound : Publisher[Frame], outbound:Subscriber[Frame])
+
+}
 
 object SimpleServer extends App {
 
-   final case class Push(msg: String)
+   final case class Push(msg: Frame)
 
    object WebSocketServer {
-      def props(listener:ActorRef) = Props(classOf[WebSocketServer], listener)
+      def props() = Props(classOf[WebSocketServer])
    }
-   class WebSocketServer(listener:ActorRef) extends Actor with ActorLogging {
+   class WebSocketServer() extends Actor with ActorLogging {
+      implicit val sys = context.system
       def receive = {
-         // when a new connection comes in we register a WebSocketConnection actor as the per connection handler
+         case Websocket.Bind(host, port) =>
+            IO(UHttp) ! Http.Bind(self, host, port)
+            context.become(awaitingConnection(sender()))
+      }
+      def awaitingConnection(commander : ActorRef):Receive = {
          case Http.Connected(remoteAddress, localAddress) =>
-            log.info("on CONNECTED")
             val serverConnection = sender()
             val publisher:ActorRef = context.actorOf(Props(classOf[APublisher]))
-            val conn = context.actorOf(WebSocketWorker.props(serverConnection, publisher))
-            serverConnection ! Http.Register(conn)
-            val subscriber:ActorRef = context.actorOf(Props(classOf[ASubscriber], conn))
-
-            listener ! Register(ActorPublisher[Frame](publisher), ActorSubscriber[Frame](subscriber))
+            val worker = context.actorOf(WebSocketWorker.props(serverConnection, publisher))
+            serverConnection ! Http.Register(worker)
+            val subscriber:ActorRef = context.actorOf(Props(classOf[ASubscriber], worker))
+            commander ! Connection(ActorPublisher[Frame](publisher), ActorSubscriber[Frame](subscriber))
+            context.become(connected(serverConnection))
+      }
+      def connected(serverConnection:ActorRef): Receive = {
+         case Websocket.Unbind =>
+            IO(UHttp) ! Http.Unbind
+            //serverConnection ! PoisonPill
       }
    }
 
@@ -71,7 +88,7 @@ object SimpleServer extends App {
             log.info("on COMPLETE")
          case ActorSubscriberMessage.OnNext(msg :Frame) =>
             log.info("on ONNEXT"+msg)
-         //   connection ! Push(msg)
+            connection ! Push(msg)
       }
 
       protected def requestStrategy = WatermarkRequestStrategy(10)
@@ -91,7 +108,7 @@ object SimpleServer extends App {
 
          case Push(msg) =>
             log.info("Push"+msg)
-            send(TextFrame(msg))
+            send(msg)
 
          case x: FrameCommandFailed =>
             log.error("frame command failed", x)
