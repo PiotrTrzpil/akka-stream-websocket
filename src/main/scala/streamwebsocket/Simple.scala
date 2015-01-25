@@ -16,9 +16,16 @@ import akka.stream.actor.ActorPublisherMessage.Request
 import scala.collection.mutable
 import org.reactivestreams.{Subscriber, Publisher}
 import streamwebsocket.Websocket.Connection
+import scala.concurrent.Future
+import scala.util.Try
+import java.net.InetSocketAddress
 
 
 case object Websocket {
+   case class Bound(address: InetSocketAddress)
+
+   case class Connect(host:String, port:Int, path:String)
+
    case object Unbind
 
    case class Bind(host:String, port:Int)
@@ -33,24 +40,30 @@ object SimpleServer extends App {
    object WebSocketServer {
       def props() = Props(classOf[WebSocketServer])
    }
+
    class WebSocketServer() extends Actor with ActorLogging {
       implicit val sys = context.system
       def receive = {
          case Websocket.Bind(host, port) =>
             IO(UHttp) ! Http.Bind(self, host, port)
-            context.become(awaitingConnection(sender()))
+            context.become(awaitingBound(sender()))
       }
-      def awaitingConnection(commander : ActorRef):Receive = {
+      def awaitingBound(commander : ActorRef):Receive = {
+         case Http.Bound(address) =>
+            println("BOUND!!!")
+            commander ! Websocket.Bound(address)
+            context.become(connected(commander))
+      }
+      def connected(commander : ActorRef): Receive = {
          case Http.Connected(remoteAddress, localAddress) =>
             val serverConnection = sender()
             val publisher:ActorRef = context.actorOf(Props(classOf[APublisher]))
             val worker = context.actorOf(WebSocketWorker.props(serverConnection, publisher))
             serverConnection ! Http.Register(worker)
             val subscriber:ActorRef = context.actorOf(Props(classOf[ASubscriber], worker))
+            println("Sending connection!!!")
             commander ! Connection(ActorPublisher[Frame](publisher), ActorSubscriber[Frame](subscriber))
-            context.become(connected(serverConnection))
-      }
-      def connected(serverConnection:ActorRef): Receive = {
+
          case Websocket.Unbind =>
             IO(UHttp) ! Http.Unbind
             //serverConnection ! PoisonPill
@@ -64,9 +77,16 @@ object SimpleServer extends App {
    class APublisher extends ActorPublisher[Frame] {
       val receiveQueue = mutable.Queue[Frame]()
       def receive = {
-         case f:Frame => receiveQueue.enqueue(f)
+         case f:Frame =>
             println("publisher got Frame"+f)
-            process()
+            try {
+               receiveQueue.enqueue(f)
+
+               process()
+            } catch {
+               case (ex:Exception) => println(ex)
+            }
+
          case Request(n) =>
             println("publisher got Request"+n)
             process()
@@ -105,7 +125,6 @@ object SimpleServer extends App {
          case x @ (_: BinaryFrame | _: TextFrame) =>
             log.info("sending to publisher"+x)
             publisher ! x
-
          case Push(msg) =>
             log.info("Push"+msg)
             send(msg)
