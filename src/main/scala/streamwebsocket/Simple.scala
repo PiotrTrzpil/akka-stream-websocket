@@ -22,7 +22,7 @@ import java.net.InetSocketAddress
 
 
 case object Websocket {
-   case class Bound(address: InetSocketAddress)
+   case class Bound(address: InetSocketAddress, connections:Publisher[Websocket.Connection])
 
    case class Connect(host:String, port:Int, path:String)
 
@@ -51,10 +51,11 @@ object SimpleServer extends App {
       def awaitingBound(commander : ActorRef):Receive = {
          case Http.Bound(address) =>
             println("BOUND!!!")
-            commander ! Websocket.Bound(address)
-            context.become(connected(commander))
+            val connectionPublisher = context.actorOf(Props(classOf[ConnectionPublisher]), "conn-publisher")
+            commander ! Websocket.Bound(address, ActorPublisher(connectionPublisher))
+            context.become(connected(commander, connectionPublisher))
       }
-      def connected(commander : ActorRef): Receive = {
+      def connected(commander: ActorRef, connectionPublisher:ActorRef): Receive = {
          case Http.Connected(remoteAddress, localAddress) =>
             val serverConnection = sender()
             val publisher:ActorRef = context.actorOf(Props(classOf[APublisher]))
@@ -62,7 +63,8 @@ object SimpleServer extends App {
             serverConnection ! Http.Register(worker)
             val subscriber:ActorRef = context.actorOf(Props(classOf[ASubscriber], worker))
             println("Sending connection!!!")
-            commander ! Connection(ActorPublisher[Frame](publisher), ActorSubscriber[Frame](subscriber))
+
+            connectionPublisher ! Connection(ActorPublisher[Frame](publisher), ActorSubscriber[Frame](subscriber))
 
          case Websocket.Unbind =>
             IO(UHttp) ! Http.Unbind
@@ -72,6 +74,26 @@ object SimpleServer extends App {
 
    object WebSocketWorker {
       def props(serverConnection: ActorRef, publisher:ActorRef) = Props(classOf[WebSocketWorker], serverConnection, publisher)
+   }
+
+   class ConnectionPublisher extends ActorPublisher[Websocket.Connection] {
+      val connectionsQueue = mutable.Queue[Websocket.Connection]()
+      def receive = {
+         case f:Websocket.Connection =>
+            connectionsQueue.enqueue(f)
+            process()
+
+         case Request(n) =>
+            process()
+
+         case Cancel =>
+            self ! PoisonPill
+      }
+      def process() = {
+         while (totalDemand > 0 && connectionsQueue.nonEmpty) {
+            onNext(connectionsQueue.dequeue())
+         }
+      }
    }
 
    class APublisher extends ActorPublisher[Frame] {
@@ -143,18 +165,5 @@ object SimpleServer extends App {
       }
    }
 
-//   def doMain() {
-//      implicit val system = ActorSystem()
-//
-//      val server = system.actorOf(WebSocketServer.props(), "websocket")
-//
-//      IO(UHttp) ! Http.Bind(server, "localhost", 8080)
-//
-//      readLine("Hit ENTER to exit ...\n")
-//      system.shutdown()
-//      system.awaitTermination()
-//   }
 
-   // because otherwise we get an ambiguous implicit if doMain is inlined
- //  doMain()
 }
