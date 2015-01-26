@@ -23,11 +23,8 @@ import java.net.InetSocketAddress
 
 case object Websocket {
    case class Bound(address: InetSocketAddress, connections:Publisher[Websocket.Connection])
-
    case class Connect(host:String, port:Int, path:String)
-
    case object Unbind
-
    case class Bind(host:String, port:Int)
    case class Connection(inbound : Publisher[Frame], outbound:Subscriber[Frame])
 
@@ -50,7 +47,6 @@ object SimpleServer extends App {
       }
       def awaitingBound(commander : ActorRef):Receive = {
          case Http.Bound(address) =>
-            println("BOUND!!!")
             val connectionPublisher = context.actorOf(Props(classOf[ConnectionPublisher]), "conn-publisher")
             commander ! Websocket.Bound(address, ActorPublisher(connectionPublisher))
             context.become(connected(commander, connectionPublisher))
@@ -62,13 +58,9 @@ object SimpleServer extends App {
             val worker = context.actorOf(WebSocketWorker.props(serverConnection, publisher))
             serverConnection ! Http.Register(worker)
             val subscriber:ActorRef = context.actorOf(Props(classOf[ASubscriber], worker))
-            println("Sending connection!!!")
-
             connectionPublisher ! Connection(ActorPublisher[Frame](publisher), ActorSubscriber[Frame](subscriber))
-
          case Websocket.Unbind =>
             IO(UHttp) ! Http.Unbind
-            //serverConnection ! PoisonPill
       }
    }
 
@@ -100,17 +92,10 @@ object SimpleServer extends App {
       val receiveQueue = mutable.Queue[Frame]()
       def receive = {
          case f:Frame =>
-            println("publisher got Frame"+f)
-            try {
-               receiveQueue.enqueue(f)
-
-               process()
-            } catch {
-               case (ex:Exception) => println(ex)
-            }
+            receiveQueue.enqueue(f)
+            process()
 
          case Request(n) =>
-            println("publisher got Request"+n)
             process()
 
          case Cancel =>
@@ -139,16 +124,11 @@ object SimpleServer extends App {
    class WebSocketWorker(val serverConnection: ActorRef, val publisher: ActorRef) extends HttpServiceActor with websocket.WebSocketServerWorker {
       override def receive = handshaking orElse businessLogicNoUpgrade orElse closeLogic
 
-      println("on WebSocketWorker")
-      log.info("on WebSocketWorker")
-
       def businessLogic: Receive = {
          // just bounce frames back for Autobahn testsuite
          case x @ (_: BinaryFrame | _: TextFrame) =>
-            log.info("sending to publisher"+x)
             publisher ! x
          case Push(msg) =>
-            log.info("Push"+msg)
             send(msg)
 
          case x: FrameCommandFailed =>
