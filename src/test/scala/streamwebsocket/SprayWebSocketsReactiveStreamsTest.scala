@@ -3,30 +3,14 @@ package streamwebsocket
 import akka.actor._
 import akka.pattern.ask
 import akka.stream.FlowMaterializer
-import akka.stream.actor.{WatermarkRequestStrategy, ActorSubscriberMessage, ActorSubscriber, ActorPublisher}
 import akka.stream.scaladsl.{Sink, Source}
 import akka.testkit.{TestKit, TestProbe}
 import akka.util.Timeout
 import org.scalatest.{FlatSpecLike, Matchers}
-import streamwebsocket.WebSocketMessage._
 
-import scala.concurrent.Future
 import scala.concurrent.duration._
-import streamwebsocket.ReactiveServer.{ResourceSubscription, SubscribeForResource}
-import akka.io.IO
-import spray.can.{websocket, Http}
-import spray.can.server.UHttp
-import streamwebsocket.SimpleServer.{WebSocketWorker, Push, WebSocketServer}
-import spray.can.websocket.frame.{Frame, TextFrame}
-import spray.http.{HttpHeaders, HttpMethods, HttpRequest}
-import spray.can.websocket.Send
-import scala.collection.mutable
-import akka.stream.actor.ActorPublisherMessage.{Cancel, Request}
-import spray.http.HttpRequest
-import spray.can.websocket.Send
-import akka.stream.actor.ActorPublisherMessage.Request
-import org.reactivestreams.{Subscriber, Publisher}
-import streamwebsocket.Websocket.{Connection, Bound}
+import spray.can.websocket.frame.TextFrame
+import streamwebsocket.WebSocketMessage.{Connection, Bound}
 
 class SprayWebSocketsReactiveStreamsTest extends TestKit(ActorSystem("Websockets"))
          with FlatSpecLike with Matchers{
@@ -40,8 +24,8 @@ class SprayWebSocketsReactiveStreamsTest extends TestKit(ActorSystem("Websockets
 
       def runClient() = {
          val client = system.actorOf(WebSocketClient.props(), "websocket-client")
-         (client ? Websocket.Connect("localhost", 8080, "/")).onSuccess {
-            case Websocket.Connection(inbound, outbound) =>
+         (client ? WebSocketMessage.Connect("localhost", 8080, "/")).onSuccess {
+            case WebSocketMessage.Connection(inbound, outbound) =>
                println("just got the Connection")
                Source(inbound).foreach { case TextFrame(text) =>
                   val str = text.utf8String
@@ -57,7 +41,7 @@ class SprayWebSocketsReactiveStreamsTest extends TestKit(ActorSystem("Websockets
 
       val server = system.actorOf(WebSocketServer.props(), "websocket")
 
-      (server ? Websocket.Bind("localhost", 8080)).onSuccess {
+      (server ? WebSocketMessage.Bind("localhost", 8080)).onSuccess {
          case Bound(addr, connections) =>
             runClient()
             Source(connections).foreach { case Connection(inbound, outbound) =>

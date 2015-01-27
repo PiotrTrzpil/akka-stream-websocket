@@ -13,7 +13,7 @@ import spray.http.HttpRequest
 import spray.can.websocket.Send
 import akka.stream.actor.ActorPublisherMessage.Request
 
-class APublisher extends ActorPublisher[Frame] {
+class ClientPublisher extends ActorPublisher[Frame] {
    val receiveQueue = mutable.Queue[Frame]()
    def receive = {
       case f:Frame => receiveQueue.enqueue(f)
@@ -30,7 +30,7 @@ class APublisher extends ActorPublisher[Frame] {
       }
    }
 }
-class ASubscriber(client:ActorRef) extends ActorSubscriber with ActorLogging{
+class ClientSubscriber(client:ActorRef) extends ActorSubscriber with ActorLogging{
    def receive = {
       case ActorSubscriberMessage.OnError(ex) =>
          log.error("",ex)
@@ -42,15 +42,15 @@ class ASubscriber(client:ActorRef) extends ActorSubscriber with ActorLogging{
    protected def requestStrategy = WatermarkRequestStrategy(10)
 }
 
-class Client(commander:ActorRef, val upgradeRequest: HttpRequest) extends websocket.WebSocketClientWorker {
+class ClientWorker(commander:ActorRef, val upgradeRequest: HttpRequest) extends websocket.WebSocketClientWorker {
    var subscriber:ActorRef = _
    var publisher:ActorRef = _
 
    def businessLogic: Receive = {
       case websocket.UpgradedToWebSocket =>
-         publisher = context.actorOf(Props(classOf[APublisher]), "client-publisher")
-         subscriber = context.actorOf(Props(classOf[ASubscriber], self),"client-subscriber")
-         commander ! Websocket.Connection(ActorPublisher(publisher), ActorSubscriber(subscriber))
+         publisher = context.actorOf(Props(classOf[ClientPublisher]), "client-publisher")
+         subscriber = context.actorOf(Props(classOf[ClientSubscriber], self),"client-subscriber")
+         commander ! WebSocketMessage.Connection(ActorPublisher(publisher), ActorSubscriber(subscriber))
       case Send(frame) =>
          connection ! frame
       case frame:Frame =>
@@ -67,7 +67,7 @@ object WebSocketClient {
 class WebSocketClient extends Actor {
    implicit val sys = context.system
    def receive = {
-      case Websocket.Connect(host, port, path) =>
+      case WebSocketMessage.Connect(host, port, path) =>
          val headers = List(
             HttpHeaders.Host(host, port),
             HttpHeaders.Connection("Upgrade"),
@@ -76,7 +76,7 @@ class WebSocketClient extends Actor {
             HttpHeaders.RawHeader("Sec-WebSocket-Key", "x3JJHMbDL1EzLkh9GBhXDw=="),
             HttpHeaders.RawHeader("Sec-WebSocket-Extensions", "permessage-deflate"))
 
-         val client = context.actorOf(Props(new Client(sender(), HttpRequest(HttpMethods.GET, path, headers))), "CLIENT")
+         val client = context.actorOf(Props(new ClientWorker(sender(), HttpRequest(HttpMethods.GET, path, headers))), "CLIENT")
          IO(UHttp).tell(Http.Connect(host, port, false), client)
    }
 }
