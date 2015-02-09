@@ -1,38 +1,28 @@
-## Spray Easter Eggs Project
+## Akka Streams WebSockets
 
-This project provides a starting point for your own _spray-routing_
-and _web sockets_ endeavours.
+Bridging WebSockets into Akka Strems based on the `https://github.com/wandoulabs/spray-websocket` project
 
-Follow these steps to get started:
+A server:
 
-1. Git-clone this repository.
+        val server = system.actorOf(WebSocketServer.props(), "websocket-server")
+        (server ? WebSocketMessage.Bind("localhost", 8080)).map {
+           case Bound(addr, connections) =>
+              Source(connections).foreach {
+                 case WebSocketMessage.Connection(inbound, outbound) =>
+                    Source(inbound).map { case TextFrame(text) =>
+                       TextFrame(text.utf8String.toUpperCase)
+                    }.runWith(Sink(outbound))
+              }
+        }
+        
+A client:
 
-        $ git clone git://github.com/cuali/SprayEasterEggs.git my-project
-
-2. Change directory into your clone:
-
-        $ cd my-project
-
-3. Launch SBT:
-
-        $ sbt
-
-4. Compile everything and run all tests:
-
-        > test
-
-5. Start the application:
-
-        > re-start
-
-6. Browse to http://localhost:9692/
-6a. Call your friends or colleagues to access your server.
-6b. Open more tabs in your browser to http://localhost:9692/hide
-
-7. Stop the application:
-
-        > re-stop
-
-8. Learn more at http://www.spray.io/
-
-9. Start hacking on `src/main/scala/cua/li/reactive/ReactiveSystem.scala`
+        val client = system.actorOf(WebSocketClient.props(), "websocket-client")
+        (client ? WebSocketMessage.Connect("localhost", 8080, "/")).map {
+           case WebSocketMessage.Connection(inbound, outbound) =>
+              Sink(outbound).runWith(
+                 Source(200 milli, 200 milli, () => TextFrame("hi")))
+              Source(inbound).foreach { case TextFrame(text) =>
+                 println(text.utf8String)
+              }
+        }
