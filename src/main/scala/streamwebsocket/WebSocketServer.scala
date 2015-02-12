@@ -8,7 +8,7 @@ import spray.can.server.UHttp
 import spray.can.websocket
 import spray.can.websocket.frame.{TextFrame, Frame, BinaryFrame}
 import spray.routing.HttpServiceActor
-import akka.stream.actor.{WatermarkRequestStrategy, ActorSubscriberMessage, ActorSubscriber, ActorPublisher}
+import akka.stream.actor._
 import akka.stream.actor.ActorPublisherMessage.Cancel
 import spray.http.HttpRequest
 import spray.can.websocket.FrameCommandFailed
@@ -18,6 +18,11 @@ import org.reactivestreams.{Subscriber, Publisher}
 import streamwebsocket.WebSocketMessage.Connection
 import java.net.InetSocketAddress
 import streamwebsocket.WebSocketServer.Push
+import spray.http.HttpRequest
+import streamwebsocket.WebSocketMessage.Connection
+import streamwebsocket.WebSocketServer.Push
+import spray.can.websocket.FrameCommandFailed
+import akka.stream.actor.ActorPublisherMessage.Request
 
 
 case object WebSocketMessage {
@@ -28,8 +33,6 @@ case object WebSocketMessage {
    case class Connection(inbound : Publisher[Frame], outbound:Subscriber[Frame])
 
 }
-
-
 
 
 object WebSocketServer {
@@ -116,7 +119,12 @@ class ServerSubscriber(connection:ActorRef) extends ActorSubscriber with ActorLo
          log.info("on ONNEXT"+msg)
          connection ! Push(msg)
    }
-   protected def requestStrategy = WatermarkRequestStrategy(10)
+
+   object strat extends MaxInFlightRequestStrategy(5) {
+      def inFlightInternally = ???
+   }
+
+   protected def requestStrategy = OneByOneRequestStrategy
 }
 
 class ServerWorker(val serverConnection: ActorRef, val publisher: ActorRef) extends HttpServiceActor with websocket.WebSocketServerWorker {

@@ -2,7 +2,7 @@ package streamwebsocket
 
 import akka.actor._
 import akka.pattern.ask
-import akka.stream.FlowMaterializer
+import akka.stream.{ActorFlowMaterializer, FlowMaterializer}
 import akka.stream.scaladsl.{Sink, Source}
 import akka.testkit.{TestKit, TestProbe}
 import akka.util.Timeout
@@ -14,7 +14,7 @@ import streamwebsocket.WebSocketMessage.{Connection, Bound}
 
 class SprayWebSocketsReactiveStreamsTest extends TestKit(ActorSystem("Websockets"))
          with FlatSpecLike with Matchers{
-   implicit val materializer = FlowMaterializer()
+   implicit val materializer = ActorFlowMaterializer()
    implicit val exec = system.dispatcher
    implicit val timeout = Timeout(3.seconds)
 
@@ -27,25 +27,24 @@ class SprayWebSocketsReactiveStreamsTest extends TestKit(ActorSystem("Websockets
          (client ? WebSocketMessage.Connect("localhost", 8080, "/")).onSuccess {
             case WebSocketMessage.Connection(inbound, outbound) =>
                println("just got the Connection")
-               Source(inbound).foreach { case TextFrame(text) =>
+               Source(inbound).runForeach { case TextFrame(text) =>
                   val str = text.utf8String
                   println(s"client received: $str")
                   probe.ref ! s"client received: $str"
                   TextFrame("server message")
                }
-               Source(200 milli, 200 milli, () => TextFrame("client message"))
+               Source(200 milli, 200 milli, TextFrame("client message"))
                  .runWith(Sink(outbound))
          }
       }
 
 
-      val server = system.actorOf(WebSocketServer.props(), "websocket")
+      val server = system.actorOf(WebSocketServer.props(), "server")
 
       (server ? WebSocketMessage.Bind("localhost", 8080)).onSuccess {
          case Bound(addr, connections) =>
-            runClient()
-            Source(connections).foreach { case Connection(inbound, outbound) =>
-               println("just got the register")
+
+            Source(connections).runForeach { case Connection(inbound, outbound) =>
                Source(inbound).map { case TextFrame(text) =>
                   val str = text.utf8String
                   println(s"server received: $str")
@@ -54,6 +53,9 @@ class SprayWebSocketsReactiveStreamsTest extends TestKit(ActorSystem("Websockets
                }.runWith(Sink(outbound))
             }
       }
+
+
+      runClient()
 
       try {
          probe.expectMsg("server received: client message")
