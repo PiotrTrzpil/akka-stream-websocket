@@ -20,7 +20,6 @@ class ClientPublisher extends ActorPublisher[Frame] {
          process()
       case Request(n) =>
          process()
-
       case Cancel =>
          self ! PoisonPill
    }
@@ -55,7 +54,6 @@ class ClientWorker(commander:ActorRef, val upgradeRequest: HttpRequest) extends 
          connection ! frame
       case frame:Frame =>
          publisher ! frame
-
       case _: Http.ConnectionClosed =>
          context.stop(self)
    }

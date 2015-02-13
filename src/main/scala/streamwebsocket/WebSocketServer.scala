@@ -24,16 +24,13 @@ import streamwebsocket.WebSocketServer.Push
 import spray.can.websocket.FrameCommandFailed
 import akka.stream.actor.ActorPublisherMessage.Request
 
-
 case object WebSocketMessage {
    case class Bound(address: InetSocketAddress, connections:Publisher[WebSocketMessage.Connection])
    case class Connect(host:String, port:Int, path:String)
    case object Unbind
    case class Bind(host:String, port:Int)
    case class Connection(inbound : Publisher[Frame], outbound:Subscriber[Frame])
-
 }
-
 
 object WebSocketServer {
    def props() = Props(classOf[WebSocketServer])
@@ -76,10 +73,8 @@ class ConnectionPublisher extends ActorPublisher[WebSocketMessage.Connection] {
       case f:WebSocketMessage.Connection =>
          connectionsQueue.enqueue(f)
          process()
-
       case Request(n) =>
          process()
-
       case Cancel =>
          self ! PoisonPill
    }
@@ -96,10 +91,8 @@ class ServerPublisher extends ActorPublisher[Frame] {
       case f:Frame =>
          receiveQueue.enqueue(f)
          process()
-
       case Request(n) =>
          process()
-
       case Cancel =>
          self ! PoisonPill
    }
@@ -114,14 +107,8 @@ class ServerSubscriber(connection:ActorRef) extends ActorSubscriber with ActorLo
       case ActorSubscriberMessage.OnError(ex) =>
          log.error("",ex)
       case ActorSubscriberMessage.OnComplete =>
-         log.info("on COMPLETE")
       case ActorSubscriberMessage.OnNext(msg :Frame) =>
-         log.info("on ONNEXT"+msg)
          connection ! Push(msg)
-   }
-
-   object strat extends MaxInFlightRequestStrategy(5) {
-      def inFlightInternally = ???
    }
 
    protected def requestStrategy = OneByOneRequestStrategy
@@ -136,8 +123,7 @@ class ServerWorker(val serverConnection: ActorRef, val publisher: ActorRef) exte
       case Push(msg) =>
          send(msg)
       case x: FrameCommandFailed =>
-         log.error("frame command failed", x)
-
+         log.error("Frame command failed", x)
       case x: HttpRequest =>
    }
 

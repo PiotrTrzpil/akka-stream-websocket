@@ -12,15 +12,14 @@ import scala.concurrent.duration._
 import spray.can.websocket.frame.TextFrame
 import streamwebsocket.WebSocketMessage.{Connection, Bound}
 
-class SprayWebSocketsReactiveStreamsTest extends TestKit(ActorSystem("Websockets"))
+class SprayWebSocketsReactiveStreamsTest extends TestKit(ActorSystem("WebSockets"))
          with FlatSpecLike with Matchers{
    implicit val materializer = ActorFlowMaterializer()
    implicit val exec = system.dispatcher
    implicit val timeout = Timeout(3.seconds)
 
-   "The websocket" should "do" in {
+   "The WebSocket client" should "send a message to server and receive it back" in {
       val probe = TestProbe()
-
 
       def runClient() = {
          val client = system.actorOf(WebSocketClient.props(), "websocket-client")
@@ -38,8 +37,7 @@ class SprayWebSocketsReactiveStreamsTest extends TestKit(ActorSystem("Websockets
          }
       }
 
-
-      val server = system.actorOf(WebSocketServer.props(), "server")
+      val server = system.actorOf(WebSocketServer.props(), "websocket-server")
 
       (server ? WebSocketMessage.Bind("localhost", 8080)).onSuccess {
          case Bound(addr, connections) =>
@@ -53,7 +51,6 @@ class SprayWebSocketsReactiveStreamsTest extends TestKit(ActorSystem("Websockets
                }.runWith(Sink(outbound))
             }
       }
-
 
       runClient()
 
