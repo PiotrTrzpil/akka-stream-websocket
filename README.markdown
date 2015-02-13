@@ -1,6 +1,6 @@
 ## Akka Streams WebSockets
 
-Bridging WebSockets into Akka Strems based on the `https://github.com/wandoulabs/spray-websocket` project
+Bridging WebSockets into Akka Streams based on the `https://github.com/wandoulabs/spray-websocket` project
 
 A server:
 
