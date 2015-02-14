@@ -48,9 +48,9 @@ class WebSocketServer() extends Actor with ActorLogging {
       case Http.Bound(address) =>
          val connectionPublisher = context.actorOf(Props(classOf[ConnectionPublisher]), "conn-publisher")
          commander ! WebSocketMessage.Bound(address, ActorPublisher(connectionPublisher))
-         context.become(connected(commander, connectionPublisher))
+         context.become(connected(connectionPublisher))
    }
-   def connected(commander: ActorRef, connectionPublisher:ActorRef): Receive = {
+   def connected(connectionPublisher:ActorRef): Receive = {
       case Http.Connected(remoteAddress, localAddress) =>
          val serverConnection = sender()
          val publisher:ActorRef = context.actorOf(Props(classOf[ServerPublisher]))
