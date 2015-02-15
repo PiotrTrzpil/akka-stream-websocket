@@ -37,7 +37,7 @@ class ClientSubscriber(client:ActorRef) extends ActorSubscriber with ActorLoggin
          client ! PoisonPill
       case ActorSubscriberMessage.OnComplete =>
          log.info("End of stream on websocket client.")
-         client ! PoisonPill
+        // client ! PoisonPill
       case ActorSubscriberMessage.OnNext(msg :Frame) =>
          client ! Send(msg)
    }
@@ -49,7 +49,7 @@ class ClientSubscriber(client:ActorRef) extends ActorSubscriber with ActorLoggin
 object WebSocketClient {
    def props() = Props(classOf[WebSocketClient])
 }
-class WebSocketClient extends Actor {
+class WebSocketClient extends Actor with ActorLogging {
    implicit val sys = context.system
    def receive = LoggingReceive {
       case connect @ WebSocketMessage.Connect(host, port, path) =>
@@ -60,13 +60,14 @@ class WebSocketClient extends Actor {
             HttpHeaders.RawHeader("Sec-WebSocket-Version", "13"),
             HttpHeaders.RawHeader("Sec-WebSocket-Key", "x3JJHMbDL1EzLkh9GBhXDw=="),
             HttpHeaders.RawHeader("Sec-WebSocket-Extensions", "permessage-deflate"))
-
-         val client = context.actorOf(Props(new ClientWorker(sender(), HttpRequest(HttpMethods.GET, path, headers), connect)), "CLIENT")
-         IO(UHttp).tell(Http.Connect(host, port, false), client)
+         log.debug(s"Received connection request from ${sender()}")
+         val client = context.actorOf(Props(classOf[ClientWorker], sender(), HttpRequest(HttpMethods.GET, path, headers), connect))
+         IO(UHttp).tell(Http.Connect(host, port, sslEncryption = false), client)
    }
 }
 
-class ClientWorker(commander:ActorRef, val upgradeRequest: HttpRequest, connect:WebSocketMessage.Connect) extends websocket.WebSocketClientWorker {
+class ClientWorker(commander:ActorRef, val upgradeRequest: HttpRequest, connect:WebSocketMessage.Connect)
+  extends websocket.WebSocketClientWorker {
    var subscriber:ActorRef = _
    var publisher:ActorRef = _
 
@@ -74,6 +75,7 @@ class ClientWorker(commander:ActorRef, val upgradeRequest: HttpRequest, connect:
       case websocket.UpgradedToWebSocket =>
          publisher = context.actorOf(Props(classOf[ClientPublisher]), "client-publisher")
          subscriber = context.actorOf(Props(classOf[ClientSubscriber], self),"client-subscriber")
+         log.debug(s"Sending established connection to ${commander}")
          commander ! WebSocketMessage.Connection(ActorPublisher(publisher), ActorSubscriber(subscriber))
       case Send(frame) =>
          log.debug(s"Sending websocket frame from client to ${connect.host}:${connect.port}")
