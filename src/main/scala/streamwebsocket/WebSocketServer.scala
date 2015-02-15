@@ -53,11 +53,10 @@ class WebSocketServer() extends Actor with ActorLogging {
    def connected(connectionPublisher:ActorRef): Receive = {
       case Http.Connected(remoteAddress, localAddress) =>
          val serverConnection = sender()
-         val publisher:ActorRef = context.actorOf(Props(classOf[ServerPublisher]))
-         val worker = context.actorOf(ServerWorker.props(serverConnection, publisher))
+
+         val worker = context.actorOf(ServerWorker.props(serverConnection, connectionPublisher))
          serverConnection ! Http.Register(worker)
-         val subscriber:ActorRef = context.actorOf(Props(classOf[ServerSubscriber], worker))
-         connectionPublisher ! Connection(ActorPublisher[Frame](publisher), ActorSubscriber[Frame](subscriber))
+
       case WebSocketMessage.Unbind =>
          IO(UHttp) ! Http.Unbind
    }
@@ -114,7 +113,12 @@ class ServerSubscriber(connection:ActorRef) extends ActorSubscriber with ActorLo
    protected def requestStrategy = OneByOneRequestStrategy
 }
 
-class ServerWorker(val serverConnection: ActorRef, val publisher: ActorRef) extends HttpServiceActor with websocket.WebSocketServerWorker {
+class ServerWorker(val serverConnection: ActorRef, val connectionPublisher: ActorRef) extends HttpServiceActor with websocket.WebSocketServerWorker {
+
+   val subscriber:ActorRef = context.actorOf(Props(classOf[ServerSubscriber], self))
+   val publisher:ActorRef = context.actorOf(Props(classOf[ServerPublisher]))
+   connectionPublisher ! Connection(ActorPublisher[Frame](publisher), ActorSubscriber[Frame](subscriber))
+
    override def receive = handshaking orElse businessLogicNoUpgrade orElse closeLogic
 
    def businessLogic: Receive = {
