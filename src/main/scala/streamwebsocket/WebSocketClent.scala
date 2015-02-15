@@ -33,7 +33,7 @@ class ClientPublisher extends ActorPublisher[Frame] {
 class ClientSubscriber(client:ActorRef) extends ActorSubscriber with ActorLogging{
    def receive = LoggingReceive {
       case ActorSubscriberMessage.OnError(ex) =>
-         log.error("Received stream error on websocket client.",ex)
+         log.error("Received stream error on websocket client. {}",ex)
          client ! PoisonPill
       case ActorSubscriberMessage.OnComplete =>
          log.info("End of stream on websocket client.")

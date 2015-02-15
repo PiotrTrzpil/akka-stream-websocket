@@ -45,7 +45,7 @@ class WebSocketServer() extends Actor with ActorLogging {
          IO(UHttp) ! Http.Bind(self, host, port)
          context.become(awaitingBound(sender()))
    }
-   def awaitingBound(commander : ActorRef):Receive = {
+   def awaitingBound(commander : ActorRef): Receive = {
       case Http.Bound(address) =>
          val connectionPublisher = context.actorOf(Props(classOf[ConnectionPublisher]), "conn-publisher")
          commander ! WebSocketMessage.Bound(address, ActorPublisher(connectionPublisher))
@@ -55,6 +55,7 @@ class WebSocketServer() extends Actor with ActorLogging {
       case Http.Connected(remoteAddress, localAddress) =>
          val serverConnection = sender()
 
+         log.debug(s"Websocket server received a new connection from: "+remoteAddress)
          val worker = context.actorOf(ServerWorker.props(serverConnection, connectionPublisher))
          serverConnection ! Http.Register(worker)
 
@@ -102,22 +103,24 @@ class ServerPublisher extends ActorPublisher[Frame] {
       }
    }
 }
-class ServerSubscriber(connection:ActorRef) extends ActorSubscriber with ActorLogging{
+class ServerSubscriber(connection:ActorRef) extends ActorSubscriber with ActorLogging {
    def receive = LoggingReceive {
       case ActorSubscriberMessage.OnError(ex) =>
-         log.error("",ex)
+         log.error("Server subscriber websocket stream error. {}",ex.toString)
       case ActorSubscriberMessage.OnComplete =>
+         log.debug("Server subscriber websocket stream complete.")
       case ActorSubscriberMessage.OnNext(msg :Frame) =>
          connection ! Push(msg)
    }
 
-   protected def requestStrategy = OneByOneRequestStrategy
+   protected def requestStrategy = WatermarkRequestStrategy(10)
 }
 
 class ServerWorker(val serverConnection: ActorRef, val connectionPublisher: ActorRef) extends HttpServiceActor with websocket.WebSocketServerWorker {
 
    val subscriber:ActorRef = context.actorOf(Props(classOf[ServerSubscriber], self))
    val publisher:ActorRef = context.actorOf(Props(classOf[ServerPublisher]))
+   log.debug(s"Sending a new server connection to connection publisher: "+connectionPublisher)
    connectionPublisher ! Connection(ActorPublisher[Frame](publisher), ActorSubscriber[Frame](subscriber))
 
    override def receive = handshaking orElse businessLogicNoUpgrade orElse closeLogic
