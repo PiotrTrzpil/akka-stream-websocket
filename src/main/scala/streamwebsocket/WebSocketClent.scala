@@ -12,10 +12,11 @@ import spray.can.server.UHttp
 import spray.http.HttpRequest
 import spray.can.websocket.Send
 import akka.stream.actor.ActorPublisherMessage.Request
+import akka.event.LoggingReceive
 
 class ClientPublisher extends ActorPublisher[Frame] {
    val receiveQueue = mutable.Queue[Frame]()
-   def receive = {
+   def receive = LoggingReceive {
       case f:Frame => receiveQueue.enqueue(f)
          process()
       case Request(n) =>
@@ -30,10 +31,13 @@ class ClientPublisher extends ActorPublisher[Frame] {
    }
 }
 class ClientSubscriber(client:ActorRef) extends ActorSubscriber with ActorLogging{
-   def receive = {
+   def receive = LoggingReceive {
       case ActorSubscriberMessage.OnError(ex) =>
-         log.error("",ex)
+         log.error("Received stream error on websocket client.",ex)
+         client ! PoisonPill
       case ActorSubscriberMessage.OnComplete =>
+         log.info("End of stream on websocket client.")
+         client ! PoisonPill
       case ActorSubscriberMessage.OnNext(msg :Frame) =>
          client ! Send(msg)
    }
@@ -41,31 +45,14 @@ class ClientSubscriber(client:ActorRef) extends ActorSubscriber with ActorLoggin
    protected def requestStrategy = WatermarkRequestStrategy(10)
 }
 
-class ClientWorker(commander:ActorRef, val upgradeRequest: HttpRequest) extends websocket.WebSocketClientWorker {
-   var subscriber:ActorRef = _
-   var publisher:ActorRef = _
 
-   def businessLogic: Receive = {
-      case websocket.UpgradedToWebSocket =>
-         publisher = context.actorOf(Props(classOf[ClientPublisher]), "client-publisher")
-         subscriber = context.actorOf(Props(classOf[ClientSubscriber], self),"client-subscriber")
-         commander ! WebSocketMessage.Connection(ActorPublisher(publisher), ActorSubscriber(subscriber))
-      case Send(frame) =>
-         connection ! frame
-      case frame:Frame =>
-         publisher ! frame
-      case _: Http.ConnectionClosed =>
-         context.stop(self)
-   }
-
-}
 object WebSocketClient {
    def props() = Props(classOf[WebSocketClient])
 }
 class WebSocketClient extends Actor {
    implicit val sys = context.system
-   def receive = {
-      case WebSocketMessage.Connect(host, port, path) =>
+   def receive = LoggingReceive {
+      case connect @ WebSocketMessage.Connect(host, port, path) =>
          val headers = List(
             HttpHeaders.Host(host, port),
             HttpHeaders.Connection("Upgrade"),
@@ -74,7 +61,28 @@ class WebSocketClient extends Actor {
             HttpHeaders.RawHeader("Sec-WebSocket-Key", "x3JJHMbDL1EzLkh9GBhXDw=="),
             HttpHeaders.RawHeader("Sec-WebSocket-Extensions", "permessage-deflate"))
 
-         val client = context.actorOf(Props(new ClientWorker(sender(), HttpRequest(HttpMethods.GET, path, headers))), "CLIENT")
+         val client = context.actorOf(Props(new ClientWorker(sender(), HttpRequest(HttpMethods.GET, path, headers), connect)), "CLIENT")
          IO(UHttp).tell(Http.Connect(host, port, false), client)
    }
+}
+
+class ClientWorker(commander:ActorRef, val upgradeRequest: HttpRequest, connect:WebSocketMessage.Connect) extends websocket.WebSocketClientWorker {
+   var subscriber:ActorRef = _
+   var publisher:ActorRef = _
+
+   def businessLogic = LoggingReceive {
+      case websocket.UpgradedToWebSocket =>
+         publisher = context.actorOf(Props(classOf[ClientPublisher]), "client-publisher")
+         subscriber = context.actorOf(Props(classOf[ClientSubscriber], self),"client-subscriber")
+         commander ! WebSocketMessage.Connection(ActorPublisher(publisher), ActorSubscriber(subscriber))
+      case Send(frame) =>
+         log.debug(s"Sending websocket frame from client to ${connect.host}:${connect.port}")
+         connection ! frame
+      case frame:Frame =>
+         log.debug(s"Received websocket frame on client from ${connect.host}:${connect.port}")
+         publisher ! frame
+      case _: Http.ConnectionClosed =>
+         context.stop(self)
+   }
+
 }

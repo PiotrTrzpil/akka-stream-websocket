@@ -23,6 +23,7 @@ import streamwebsocket.WebSocketMessage.Connection
 import streamwebsocket.WebSocketServer.Push
 import spray.can.websocket.FrameCommandFailed
 import akka.stream.actor.ActorPublisherMessage.Request
+import akka.event.LoggingReceive
 
 case object WebSocketMessage {
    case class Bound(address: InetSocketAddress, connections:Publisher[WebSocketMessage.Connection])
@@ -39,7 +40,7 @@ object WebSocketServer {
 
 class WebSocketServer() extends Actor with ActorLogging {
    implicit val sys = context.system
-   def receive = {
+   def receive = LoggingReceive {
       case WebSocketMessage.Bind(host, port) =>
          IO(UHttp) ! Http.Bind(self, host, port)
          context.become(awaitingBound(sender()))
@@ -68,7 +69,7 @@ object ServerWorker {
 
 class ConnectionPublisher extends ActorPublisher[WebSocketMessage.Connection] {
    val connectionsQueue = mutable.Queue[WebSocketMessage.Connection]()
-   def receive = {
+   def receive = LoggingReceive {
       case f:WebSocketMessage.Connection =>
          connectionsQueue.enqueue(f)
          process()
@@ -86,7 +87,7 @@ class ConnectionPublisher extends ActorPublisher[WebSocketMessage.Connection] {
 
 class ServerPublisher extends ActorPublisher[Frame] {
    val receiveQueue = mutable.Queue[Frame]()
-   def receive = {
+   def receive = LoggingReceive {
       case f:Frame =>
          receiveQueue.enqueue(f)
          process()
@@ -102,7 +103,7 @@ class ServerPublisher extends ActorPublisher[Frame] {
    }
 }
 class ServerSubscriber(connection:ActorRef) extends ActorSubscriber with ActorLogging{
-   def receive = {
+   def receive = LoggingReceive {
       case ActorSubscriberMessage.OnError(ex) =>
          log.error("",ex)
       case ActorSubscriberMessage.OnComplete =>
@@ -121,13 +122,16 @@ class ServerWorker(val serverConnection: ActorRef, val connectionPublisher: Acto
 
    override def receive = handshaking orElse businessLogicNoUpgrade orElse closeLogic
 
-   def businessLogic: Receive = {
+   def businessLogic = LoggingReceive {
       case x @ (_: BinaryFrame | _: TextFrame) =>
+         log.debug(s"Received websocket frame on the server.")
          publisher ! x
       case Push(msg) =>
+         log.debug(s"Sending websocket frame from server.")
          send(msg)
       case x: FrameCommandFailed =>
-         log.error("Frame command failed", x)
+         log.error("Frame command failed on websocket server connection.", x)
+         self ! PoisonPill
       case x: HttpRequest =>
    }
 
