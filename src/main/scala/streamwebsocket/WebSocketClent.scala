@@ -13,6 +13,7 @@ import spray.http.HttpRequest
 import spray.can.websocket.Send
 import akka.stream.actor.ActorPublisherMessage.Request
 import akka.event.LoggingReceive
+import akka.io.Tcp.Close
 
 class ClientPublisher extends ActorPublisher[Frame] {
    val receiveQueue = mutable.Queue[Frame]()
@@ -71,11 +72,15 @@ class ClientWorker(commander:ActorRef, val upgradeRequest: HttpRequest, connect:
    var subscriber:ActorRef = _
    var publisher:ActorRef = _
 
+   override def postStop() = {
+      connection ! Close
+   }
+
    def businessLogic = LoggingReceive {
       case websocket.UpgradedToWebSocket =>
          publisher = context.actorOf(Props(classOf[ClientPublisher]), "client-publisher")
          subscriber = context.actorOf(Props(classOf[ClientSubscriber], self),"client-subscriber")
-         log.debug(s"Sending established connection to ${commander}")
+         log.debug(s"Sending established connection to $commander")
          commander ! WebSocketMessage.Connection(ActorPublisher(publisher), ActorSubscriber(subscriber))
       case Send(frame) =>
          log.debug(s"Sending websocket frame from client to ${connect.host}:${connect.port}")
